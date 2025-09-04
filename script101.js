@@ -944,7 +944,7 @@ window.debugLogger = debugLogger;
       console.log(`🎬 Загружаем видео ${currentOrderIndex + 1}/${videoOrder.length}, индекс: ${idx}`);
       
       if (videoData) {
-        const newSrc = `uploads/${encodeURIComponent(videoData.filename)}`;
+        const newSrc = `https://s3.regru.cloud/dorama-shorts/${encodeURIComponent(videoData.filename)}`;
         console.log('📁 Путь к видео:', newSrc);
         
         // Генерируем уникальный ID для видео (используем filename)
