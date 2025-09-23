@@ -1,27 +1,11 @@
 <?php
-// update_activity.php v1.0 - Обновление активности пользователя
+require_once __DIR__ . '/../config/database.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST');
 header('Access-Control-Allow-Headers: Content-Type');
 
-define('USERS_DATA_FILE', __DIR__ . '/users_data.json');
-
-// Функция загрузки данных пользователей
-function loadUsersData() {
-    if (file_exists(USERS_DATA_FILE)) {
-        $data = json_decode(file_get_contents(USERS_DATA_FILE), true);
-        return is_array($data) ? $data : [];
-    }
-    return [];
-}
-
-// Функция сохранения данных пользователей
-function saveUsersData($data) {
-    return file_put_contents(USERS_DATA_FILE, json_encode($data, JSON_PRETTY_PRINT)) !== false;
-}
-
-// Основная логика
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['success' => false, 'message' => 'Метод не поддерживается']);
     exit;
@@ -30,52 +14,38 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!$input || !isset($input['user_id']) || !isset($input['session_id'])) {
-    echo json_encode(['success' => false, 'message' => 'Неверные данные запроса']);
+    echo json_encode(['success' => false, 'message' => 'Неверные данные']);
     exit;
 }
 
 try {
-    $userId = strval($input['user_id']);
+    $userId = $input['user_id'];
     $sessionId = $input['session_id'];
-    $lastActivity = $input['last_activity'] ?? date('Y-m-d H:i:s');
     
-    $usersData = loadUsersData();
+    $pdo = getDBConnection();
     
-    if (!isset($usersData[$userId])) {
-        throw new Exception('Пользователь не найден');
-    }
+    // Обновляем активность сессии
+    $sql = "UPDATE sessions 
+            SET last_activity = NOW(),
+                duration_seconds = EXTRACT(EPOCH FROM (NOW() - login_time))
+            WHERE session_id = :session_id 
+            AND user_id = :user_id 
+            AND logout_time IS NULL";
     
-    // Находим и обновляем активную сессию
-    $sessionFound = false;
-    foreach ($usersData[$userId]['sessions'] as &$session) {
-        if ($session['session_id'] === $sessionId && !$session['logout_time']) {
-            $session['last_activity'] = $lastActivity;
-            
-            // Обновляем продолжительность сессии
-            $loginTime = strtotime($session['login_time']);
-            $currentTime = strtotime($lastActivity);
-            $session['duration_seconds'] = $currentTime - $loginTime;
-            
-            $sessionFound = true;
-            break;
-        }
-    }
+    $stmt = $pdo->prepare($sql);
+    $stmt->execute([
+        ':session_id' => $sessionId,
+        ':user_id' => $userId
+    ]);
     
-    if (!$sessionFound) {
-        throw new Exception('Активная сессия не найдена');
-    }
-    
-    // Обновляем время последней активности пользователя
-    $usersData[$userId]['last_activity'] = $lastActivity;
-    
-    if (!saveUsersData($usersData)) {
-        throw new Exception('Ошибка сохранения данных');
-    }
+    // Обновляем активность пользователя
+    $stmt = $pdo->prepare("UPDATE users SET last_activity = NOW() WHERE user_id = :user_id");
+    $stmt->execute([':user_id' => $userId]);
     
     echo json_encode([
         'success' => true,
         'message' => 'Активность обновлена',
-        'last_activity' => $lastActivity
+        'last_activity' => date('Y-m-d H:i:s')
     ]);
     
 } catch (Exception $e) {

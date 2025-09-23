@@ -1,27 +1,11 @@
 <?php
-// update_user_data.php v1.0 - Обновление данных пользователя (избранное, лайки)
+require_once __DIR__ . '/../config/database.php';
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST');
 header('Access-Control-Allow-Headers: Content-Type');
 
-define('USERS_DATA_FILE', __DIR__ . '/users_data.json');
-
-// Функция загрузки данных пользователей
-function loadUsersData() {
-    if (file_exists(USERS_DATA_FILE)) {
-        $data = json_decode(file_get_contents(USERS_DATA_FILE), true);
-        return is_array($data) ? $data : [];
-    }
-    return [];
-}
-
-// Функция сохранения данных пользователей
-function saveUsersData($data) {
-    return file_put_contents(USERS_DATA_FILE, json_encode($data, JSON_PRETTY_PRINT)) !== false;
-}
-
-// Основная логика
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode(['success' => false, 'message' => 'Метод не поддерживается']);
     exit;
@@ -30,135 +14,119 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!$input || !isset($input['user_id']) || !isset($input['action'])) {
-    echo json_encode(['success' => false, 'message' => 'Неверные данные запроса']);
+    echo json_encode(['success' => false, 'message' => 'Неверные данные']);
     exit;
 }
 
 try {
-    $userId = strval($input['user_id']);
+    $userId = $input['user_id'];
     $action = $input['action'];
-    $videoId = $input['video_id'] ?? null;
+    $videoFilename = $input['video_id'] ?? null; // На самом деле это filename
     
-    $usersData = loadUsersData();
+    $pdo = getDBConnection();
     
-    if (!isset($usersData[$userId])) {
-        throw new Exception('Пользователь не найден');
+    // Получаем ID видео по filename
+    $videoId = null;
+    if ($videoFilename) {
+        $stmt = $pdo->prepare("SELECT id FROM videos WHERE filename = :filename");
+        $stmt->execute([':filename' => $videoFilename]);
+        $video = $stmt->fetch();
+        $videoId = $video['id'] ?? null;
+        
+        if (!$videoId) {
+            throw new Exception('Видео не найдено');
+        }
     }
     
     switch ($action) {
         case 'toggle_favorite':
-            if (!$videoId) {
-                throw new Exception('ID видео не передан');
-            }
+            // Проверяем, есть ли в избранном
+            $stmt = $pdo->prepare("SELECT 1 FROM favorites WHERE user_id = :user_id AND video_id = :video_id");
+            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
             
-            $favorites = &$usersData[$userId]['favorites'];
-            $index = array_search($videoId, $favorites);
-            
-            if ($index !== false) {
+            if ($stmt->fetch()) {
                 // Удаляем из избранного
-                array_splice($favorites, $index, 1);
+                $stmt = $pdo->prepare("DELETE FROM favorites WHERE user_id = :user_id AND video_id = :video_id");
+                $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
                 $message = 'Удалено из избранного';
             } else {
                 // Добавляем в избранное
-                $favorites[] = $videoId;
+                $stmt = $pdo->prepare("INSERT INTO favorites (user_id, video_id) VALUES (:user_id, :video_id)");
+                $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
                 $message = 'Добавлено в избранное';
             }
             break;
             
         case 'add_like':
-            if (!$videoId) {
-                throw new Exception('ID видео не передан');
-            }
+            // Удаляем старую реакцию если есть
+            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = :user_id AND video_id = :video_id");
+            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
             
-            $likes = &$usersData[$userId]['likes'];
-            $dislikes = &$usersData[$userId]['dislikes'];
-            
-            // Удаляем из дизлайков если есть
-            $dislikeIndex = array_search($videoId, $dislikes);
-            if ($dislikeIndex !== false) {
-                array_splice($dislikes, $dislikeIndex, 1);
-            }
-            
-            // Добавляем в лайки если еще нет
-            if (!in_array($videoId, $likes)) {
-                $likes[] = $videoId;
-            }
-            
+            // Добавляем лайк
+            $stmt = $pdo->prepare("INSERT INTO reactions (user_id, video_id, reaction_type) VALUES (:user_id, :video_id, 'like')");
+            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
             $message = 'Лайк добавлен';
             break;
             
         case 'add_dislike':
-            if (!$videoId) {
-                throw new Exception('ID видео не передан');
-            }
+            // Удаляем старую реакцию если есть
+            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = :user_id AND video_id = :video_id");
+            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
             
-            $likes = &$usersData[$userId]['likes'];
-            $dislikes = &$usersData[$userId]['dislikes'];
-            
-            // Удаляем из лайков если есть
-            $likeIndex = array_search($videoId, $likes);
-            if ($likeIndex !== false) {
-                array_splice($likes, $likeIndex, 1);
-            }
-            
-            // Добавляем в дизлайки если еще нет
-            if (!in_array($videoId, $dislikes)) {
-                $dislikes[] = $videoId;
-            }
-            
+            // Добавляем дизлайк
+            $stmt = $pdo->prepare("INSERT INTO reactions (user_id, video_id, reaction_type) VALUES (:user_id, :video_id, 'dislike')");
+            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
             $message = 'Дизлайк добавлен';
             break;
             
         case 'remove_like':
-            if (!$videoId) {
-                throw new Exception('ID видео не передан');
-            }
-            
-            $likes = &$usersData[$userId]['likes'];
-            $index = array_search($videoId, $likes);
-            
-            if ($index !== false) {
-                array_splice($likes, $index, 1);
-                $message = 'Лайк удален';
-            } else {
-                $message = 'Лайк не найден';
-            }
-            break;
-            
         case 'remove_dislike':
-            if (!$videoId) {
-                throw new Exception('ID видео не передан');
-            }
-            
-            $dislikes = &$usersData[$userId]['dislikes'];
-            $index = array_search($videoId, $dislikes);
-            
-            if ($index !== false) {
-                array_splice($dislikes, $index, 1);
-                $message = 'Дизлайк удален';
-            } else {
-                $message = 'Дизлайк не найден';
-            }
+            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = :user_id AND video_id = :video_id");
+            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $message = 'Реакция удалена';
             break;
             
         default:
             throw new Exception('Неизвестное действие: ' . $action);
     }
     
-    // Обновляем время последнего изменения
-    $usersData[$userId]['last_modified'] = date('Y-m-d H:i:s');
+    // Обновляем время модификации пользователя
+    $stmt = $pdo->prepare("UPDATE users SET last_modified = NOW() WHERE user_id = :user_id");
+    $stmt->execute([':user_id' => $userId]);
     
-    if (!saveUsersData($usersData)) {
-        throw new Exception('Ошибка сохранения данных');
+    // Получаем обновленные данные для ответа
+    $stmt = $pdo->prepare("
+        SELECT v.filename FROM favorites f
+        JOIN videos v ON v.id = f.video_id
+        WHERE f.user_id = :user_id AND v.is_active = true
+    ");
+    $stmt->execute([':user_id' => $userId]);
+    $favorites = $stmt->fetchAll(PDO::FETCH_COLUMN);
+    
+    $stmt = $pdo->prepare("
+        SELECT v.filename, r.reaction_type FROM reactions r
+        JOIN videos v ON v.id = r.video_id
+        WHERE r.user_id = :user_id AND v.is_active = true
+    ");
+    $stmt->execute([':user_id' => $userId]);
+    
+    $likes = [];
+    $dislikes = [];
+    while ($row = $stmt->fetch()) {
+        if ($row['reaction_type'] === 'like') {
+            $likes[] = $row['filename'];
+        } else {
+            $dislikes[] = $row['filename'];
+        }
     }
     
     echo json_encode([
         'success' => true,
         'message' => $message,
         'user_data' => [
-            'favorites' => $usersData[$userId]['favorites'],
-            'likes' => $usersData[$userId]['likes'],
-            'dislikes' => $usersData[$userId]['dislikes']
+            'favorites' => $favorites,
+            'likes' => $likes,
+            'dislikes' => $dislikes
         ]
     ]);
     
