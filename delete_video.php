@@ -1,5 +1,7 @@
 <?php
-// delete_video.php v1.0 - Удаление видео
+require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/includes/s3_client.php';
+
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -7,131 +9,92 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-// Получаем данные из POST запроса
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!$input || !isset($input['action'])) {
-    echo json_encode(["success" => false, "message" => "Неверные данные запроса"]);
+    echo json_encode(["success" => false, "message" => "Неверные данные"]);
     exit();
 }
 
 $action = $input['action'];
-$uploadsDir = __DIR__ . '/uploads/';
-$metadataFile = __DIR__ . '/videos.json';
-
-// Функция для безопасного удаления файла
-function safeDeleteFile($filePath) {
-    if (file_exists($filePath)) {
-        return unlink($filePath);
-    }
-    return true; // Файл уже не существует
-}
-
-// Функция для загрузки метаданных
-function loadMetadata($metadataFile) {
-    if (file_exists($metadataFile)) {
-        $data = json_decode(file_get_contents($metadataFile), true);
-        return is_array($data) ? $data : [];
-    }
-    return [];
-}
-
-// Функция для сохранения метаданных
-function saveMetadata($metadataFile, $data) {
-    return file_put_contents($metadataFile, json_encode($data)) !== false;
-}
 
 try {
+    $pdo = getDBConnection();
+    if (!$pdo) {
+        throw new Exception("Ошибка подключения к БД");
+    }
+    
+    $s3Client = new S3Client();
+    
     if ($action === 'delete_single') {
-        // Удаление одного видео
         if (!isset($input['filename'])) {
-            throw new Exception("Не указан файл для удаления");
+            throw new Exception("Не указан файл");
         }
         
         $filename = $input['filename'];
-        $filePath = $uploadsDir . $filename;
         
-        // Проверяем безопасность пути (защита от directory traversal)
-        if (strpos($filename, '..') !== false || strpos($filename, '/') !== false || strpos($filename, '\\') !== false) {
-            throw new Exception("Недопустимое имя файла");
+        // Получаем информацию о видео
+        $stmt = $pdo->prepare("SELECT id, filename FROM videos WHERE filename = :filename");
+        $stmt->execute([':filename' => $filename]);
+        $video = $stmt->fetch();
+        
+        if (!$video) {
+            throw new Exception("Видео не найдено");
         }
         
-        // Загружаем метаданные
-        $videos = loadMetadata($metadataFile);
+        // Удаляем из S3
+        $s3Deleted = $s3Client->deleteFile($filename);
         
-        // Находим и удаляем видео из метаданных
-        $videoFound = false;
-        $updatedVideos = [];
+        // Помечаем как неактивное в БД (soft delete)
+        $stmt = $pdo->prepare("UPDATE videos SET is_active = false WHERE id = :id");
+        $stmt->execute([':id' => $video['id']]);
         
-        foreach ($videos as $video) {
-            if ($video['filename'] !== $filename) {
-                $updatedVideos[] = $video;
-            } else {
-                $videoFound = true;
-            }
-        }
-        
-        if (!$videoFound) {
-            throw new Exception("Видео не найдено в базе данных");
-        }
-        
-        // Удаляем файл
-        if (!safeDeleteFile($filePath)) {
-            throw new Exception("Ошибка удаления файла: $filename");
-        }
-        
-        // Сохраняем обновленные метаданные
-        if (!saveMetadata($metadataFile, $updatedVideos)) {
-            throw new Exception("Ошибка обновления базы данных");
-        }
+        // Удаляем связанные данные
+        $pdo->prepare("DELETE FROM favorites WHERE video_id = :id")->execute([':id' => $video['id']]);
+        $pdo->prepare("DELETE FROM reactions WHERE video_id = :id")->execute([':id' => $video['id']]);
+        $pdo->prepare("DELETE FROM watch_progress WHERE video_id = :id")->execute([':id' => $video['id']]);
         
         echo json_encode([
-            "success" => true, 
-            "message" => "Видео успешно удалено",
-            "deleted_file" => $filename,
-            "remaining_count" => count($updatedVideos)
+            "success" => true,
+            "message" => "Видео удалено",
+            "s3_deleted" => $s3Deleted
         ]);
         
     } elseif ($action === 'delete_all') {
-        // Удаление всех видео
-        $videos = loadMetadata($metadataFile);
+        // Получаем все активные видео
+        $stmt = $pdo->query("SELECT id, filename FROM videos WHERE is_active = true");
+        $videos = $stmt->fetchAll();
+        
         $deletedCount = 0;
         $errors = [];
         
-        // Удаляем все файлы
         foreach ($videos as $video) {
-            $filePath = $uploadsDir . $video['filename'];
-            if (safeDeleteFile($filePath)) {
+            try {
+                // Удаляем из S3
+                $s3Client->deleteFile($video['filename']);
+                
+                // Помечаем как неактивное
+                $pdo->prepare("UPDATE videos SET is_active = false WHERE id = :id")
+                    ->execute([':id' => $video['id']]);
+                
                 $deletedCount++;
-            } else {
+            } catch (Exception $e) {
                 $errors[] = $video['filename'];
             }
         }
         
-        // Очищаем метаданные
-        if (!saveMetadata($metadataFile, [])) {
-            throw new Exception("Ошибка очистки базы данных");
-        }
-        
-        // Удаляем папку uploads, если она пустая
-        if (is_dir($uploadsDir) && count(scandir($uploadsDir)) == 2) { // . и ..
-            rmdir($uploadsDir);
-        }
-        
-        $message = "Удалено файлов: $deletedCount";
-        if (!empty($errors)) {
-            $message .= ". Ошибки при удалении: " . implode(', ', $errors);
-        }
+        // Очищаем связанные таблицы
+        $pdo->exec("DELETE FROM favorites WHERE video_id IN (SELECT id FROM videos WHERE is_active = false)");
+        $pdo->exec("DELETE FROM reactions WHERE video_id IN (SELECT id FROM videos WHERE is_active = false)");
+        $pdo->exec("DELETE FROM watch_progress WHERE video_id IN (SELECT id FROM videos WHERE is_active = false)");
+        $pdo->exec("DELETE FROM session_order");
         
         echo json_encode([
             "success" => true,
-            "message" => $message,
+            "message" => "Удалено видео: $deletedCount",
             "deleted_count" => $deletedCount,
             "errors" => $errors
         ]);
-        
-    } else {
-        throw new Exception("Неизвестное действие: $action");
     }
     
 } catch (Exception $e) {
