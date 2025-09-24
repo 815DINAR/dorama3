@@ -92,7 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             const result = await response.json();
-            console.log('📋 Результат загрузки:', result);
+            console.log('📋 Результат загрузки!:', result);
             
             if (result.success) {
                 showStatus('Видео успешно загружено!', 'success');
