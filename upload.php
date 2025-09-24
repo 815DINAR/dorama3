@@ -71,7 +71,7 @@ try {
     // 2. Сохранение в PostgreSQL
     $pdo = getDBConnection();
     if (!$pdo) {
-        throw new Exception("Ошибка подключения к БД");
+        throw new Exception("Ошибка подключения к БД!");
     }
     
     // Проверка на дубликат
