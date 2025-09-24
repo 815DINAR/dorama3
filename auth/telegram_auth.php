@@ -6,7 +6,7 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST');
 header('Access-Control-Allow-Headers: Content-Type');
 
-define('BOT_TOKEN', '7802352681:AAGmFrxHW70g8sO7sYh4vQZ1DjHkHNAzAWg');
+define('BOT_TOKEN', '8437727345:AAEJsxuxQqJQDPNgR9ZHRi9KZRyUrYro4Lg');
 
 // Генерация ID сессии
 function generateSessionId() {
@@ -45,12 +45,12 @@ try {
             
             // Создаем/обновляем пользователя
             $sql = "INSERT INTO users (user_id, username, first_name, last_name, language_code, is_premium, first_login, last_login)
-                    VALUES (:user_id, :username, :first_name, :last_name, :language_code, :is_premium, NOW(), NOW())
-                    ON CONFLICT (user_id) DO UPDATE SET
-                        username = EXCLUDED.username,
-                        first_name = EXCLUDED.first_name,
-                        last_name = EXCLUDED.last_name,
-                        last_login = NOW()";
+                VALUES (:user_id, :username, :first_name, :last_name, :language_code, :is_premium, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE
+                    username = VALUES(username),
+                    first_name = VALUES(first_name),
+                    last_name = VALUES(last_name),
+                    last_login = NOW()";
             
             $stmt = $pdo->prepare($sql);
             $stmt->execute([
@@ -76,10 +76,10 @@ try {
             
             // Получаем данные пользователя
             $stmt = $pdo->prepare("
-                SELECT array_agg(DISTINCT v.filename) as favorites
+                SELECT GROUP_CONCAT(DISTINCT v.filename) AS favorites
                 FROM favorites f
                 JOIN videos v ON v.id = f.video_id
-                WHERE f.user_id = :user_id AND v.is_active = true
+                WHERE f.user_id = :user_id AND v.is_active = 1
             ");
             $stmt->execute([':user_id' => $userId]);
             $favorites = $stmt->fetch()['favorites'] ?? '{}';
