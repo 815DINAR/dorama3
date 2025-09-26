@@ -24,23 +24,20 @@ try {
     
     $pdo = getDBConnection();
     
-    // Обновляем активность сессии
+    // ИСПРАВЛЕНО ДЛЯ MYSQL: используем TIMESTAMPDIFF вместо EXTRACT
     $sql = "UPDATE sessions 
             SET last_activity = NOW(),
-                duration_seconds = EXTRACT(EPOCH FROM (NOW() - login_time))
-            WHERE session_id = :session_id 
-            AND user_id = :user_id 
+                duration_seconds = TIMESTAMPDIFF(SECOND, login_time, NOW())
+            WHERE session_id = ? 
+            AND user_id = ? 
             AND logout_time IS NULL";
     
     $stmt = $pdo->prepare($sql);
-    $stmt->execute([
-        ':session_id' => $sessionId,
-        ':user_id' => $userId
-    ]);
+    $stmt->execute([$sessionId, $userId]);
     
     // Обновляем активность пользователя
-    $stmt = $pdo->prepare("UPDATE users SET last_activity = NOW() WHERE user_id = :user_id");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt = $pdo->prepare("UPDATE users SET last_activity = NOW() WHERE user_id = ?");
+    $stmt->execute([$userId]);
     
     echo json_encode([
         'success' => true,

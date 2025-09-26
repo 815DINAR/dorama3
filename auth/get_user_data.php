@@ -24,8 +24,8 @@ try {
     $pdo = getDBConnection();
     
     // Получаем данные пользователя
-    $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = :user_id");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
+    $stmt->execute([$userId]);
     $user = $stmt->fetch();
     
     if (!$user) {
@@ -54,9 +54,9 @@ try {
         SELECT v.filename 
         FROM favorites f
         JOIN videos v ON v.id = f.video_id
-        WHERE f.user_id = :user_id AND v.is_active = true
+        WHERE f.user_id = ? AND v.is_active = true
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $favorites = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
     // Получаем реакции (возвращаем filename)
@@ -64,9 +64,9 @@ try {
         SELECT v.filename, r.reaction_type 
         FROM reactions r
         JOIN videos v ON v.id = r.video_id
-        WHERE r.user_id = :user_id AND v.is_active = true
+        WHERE r.user_id = ? AND v.is_active = true
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     
     $likes = [];
     $dislikes = [];
@@ -83,10 +83,10 @@ try {
         SELECT v.filename 
         FROM watch_progress wp
         JOIN videos v ON v.id = wp.video_id
-        WHERE wp.user_id = :user_id
+        WHERE wp.user_id = ?
         ORDER BY wp.watched_at DESC
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $watchedVideos = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
     // Получаем прогресс просмотра
@@ -94,9 +94,9 @@ try {
         SELECT v.filename, wp.watched_at, wp.duration 
         FROM watch_progress wp
         JOIN videos v ON v.id = wp.video_id
-        WHERE wp.user_id = :user_id
+        WHERE wp.user_id = ?
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $watchProgressArray = [];
     while ($row = $stmt->fetch()) {
         $watchProgressArray[$row['filename']] = [
@@ -110,21 +110,21 @@ try {
         SELECT v.filename 
         FROM session_order so
         JOIN videos v ON v.id = so.video_id
-        WHERE so.user_id = :user_id
+        WHERE so.user_id = ?
         ORDER BY so.position
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $sessionOrder = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
     // Получаем статистику сессий
     $stmt = $pdo->prepare("
         SELECT COUNT(*) as count, 
-               SUM(duration_seconds) as total_time,
+               COALESCE(SUM(duration_seconds), 0) as total_time,
                SUM(CASE WHEN logout_time IS NULL THEN 1 ELSE 0 END) as active
         FROM sessions 
-        WHERE user_id = :user_id
+        WHERE user_id = ?
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $sessionStats = $stmt->fetch();
     
     // Формируем ответ

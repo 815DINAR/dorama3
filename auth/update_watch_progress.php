@@ -34,26 +34,22 @@ try {
             $duration = $input['duration'] ?? 5;
             
             // Получаем ID видео
-            $stmt = $pdo->prepare("SELECT id FROM videos WHERE filename = :filename");
-            $stmt->execute([':filename' => $videoFilename]);
+            $stmt = $pdo->prepare("SELECT id FROM videos WHERE filename = ?");
+            $stmt->execute([$videoFilename]);
             $video = $stmt->fetch();
             
             if (!$video) {
                 throw new Exception('Видео не найдено');
             }
             
-            // Добавляем в просмотренные (или обновляем)
+            // ИСПРАВЛЕНО ДЛЯ MYSQL: используем ON DUPLICATE KEY UPDATE
             $sql = "INSERT INTO watch_progress (user_id, video_id, watched_at, duration) 
-                    VALUES (:user_id, :video_id, NOW(), :duration)
-                    ON CONFLICT (user_id, video_id) DO UPDATE 
-                    SET watched_at = NOW(), duration = :duration";
+                    VALUES (?, ?, NOW(), ?)
+                    ON DUPLICATE KEY UPDATE 
+                    watched_at = NOW(), duration = VALUES(duration)";
             
             $stmt = $pdo->prepare($sql);
-            $stmt->execute([
-                ':user_id' => $userId,
-                ':video_id' => $video['id'],
-                ':duration' => $duration
-            ]);
+            $stmt->execute([$userId, $video['id'], $duration]);
             
             $message = 'Видео добавлено в просмотренные';
             break;
@@ -71,23 +67,19 @@ try {
             $order = $input['order']; // Массив filename
             
             // Очищаем старый порядок
-            $stmt = $pdo->prepare("DELETE FROM session_order WHERE user_id = :user_id");
-            $stmt->execute([':user_id' => $userId]);
+            $stmt = $pdo->prepare("DELETE FROM session_order WHERE user_id = ?");
+            $stmt->execute([$userId]);
             
             // Сохраняем новый порядок
             $position = 0;
             foreach ($order as $filename) {
                 $stmt = $pdo->prepare("
                     INSERT INTO session_order (user_id, video_id, position)
-                    SELECT :user_id, id, :position 
+                    SELECT ?, id, ? 
                     FROM videos 
-                    WHERE filename = :filename
+                    WHERE filename = ?
                 ");
-                $stmt->execute([
-                    ':user_id' => $userId,
-                    ':filename' => $filename,
-                    ':position' => $position++
-                ]);
+                $stmt->execute([$userId, $position++, $filename]);
             }
             
             $message = 'Порядок сессии сохранен';
@@ -95,10 +87,10 @@ try {
             
         case 'reset_progress':
             // Удаляем весь прогресс
-            $pdo->prepare("DELETE FROM watch_progress WHERE user_id = :user_id")
-                ->execute([':user_id' => $userId]);
-            $pdo->prepare("DELETE FROM session_order WHERE user_id = :user_id")
-                ->execute([':user_id' => $userId]);
+            $pdo->prepare("DELETE FROM watch_progress WHERE user_id = ?")
+                ->execute([$userId]);
+            $pdo->prepare("DELETE FROM session_order WHERE user_id = ?")
+                ->execute([$userId]);
             
             $message = 'Прогресс сброшен';
             break;
@@ -109,17 +101,21 @@ try {
             
             if (!empty($existingVideos)) {
                 // Получаем ID существующих видео
-                $placeholders = array_fill(0, count($existingVideos), '?');
-                $sql = "SELECT id FROM videos WHERE filename IN (" . implode(',', $placeholders) . ")";
+                $placeholders = str_repeat('?,', count($existingVideos) - 1) . '?';
+                $sql = "SELECT id FROM videos WHERE filename IN ($placeholders)";
                 $stmt = $pdo->prepare($sql);
                 $stmt->execute($existingVideos);
                 $validIds = $stmt->fetchAll(PDO::FETCH_COLUMN);
                 
                 if (!empty($validIds)) {
                     // Удаляем записи о несуществующих видео
-                    $placeholders = implode(',', $validIds);
-                    $pdo->exec("DELETE FROM watch_progress WHERE user_id = $userId AND video_id NOT IN ($placeholders)");
-                    $pdo->exec("DELETE FROM session_order WHERE user_id = $userId AND video_id NOT IN ($placeholders)");
+                    $idPlaceholders = str_repeat('?,', count($validIds) - 1) . '?';
+                    
+                    $stmt = $pdo->prepare("DELETE FROM watch_progress WHERE user_id = ? AND video_id NOT IN ($idPlaceholders)");
+                    $stmt->execute(array_merge([$userId], $validIds));
+                    
+                    $stmt = $pdo->prepare("DELETE FROM session_order WHERE user_id = ? AND video_id NOT IN ($idPlaceholders)");
+                    $stmt->execute(array_merge([$userId], $validIds));
                 }
             }
             
@@ -131,26 +127,26 @@ try {
     }
     
     // Обновляем время модификации
-    $stmt = $pdo->prepare("UPDATE users SET last_modified = NOW() WHERE user_id = :user_id");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt = $pdo->prepare("UPDATE users SET last_modified = NOW() WHERE user_id = ?");
+    $stmt->execute([$userId]);
     
     // Получаем обновленную статистику
     $stmt = $pdo->prepare("
         SELECT COUNT(DISTINCT video_id) as watched_count
         FROM watch_progress 
-        WHERE user_id = :user_id
+        WHERE user_id = ?
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $stats = $stmt->fetch();
     
     $stmt = $pdo->prepare("
         SELECT v.filename 
         FROM watch_progress wp
         JOIN videos v ON v.id = wp.video_id
-        WHERE wp.user_id = :user_id
+        WHERE wp.user_id = ?
         ORDER BY wp.watched_at DESC
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $watchedVideos = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
     echo json_encode([

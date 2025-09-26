@@ -28,8 +28,8 @@ try {
     // Получаем ID видео по filename
     $videoId = null;
     if ($videoFilename) {
-        $stmt = $pdo->prepare("SELECT id FROM videos WHERE filename = :filename");
-        $stmt->execute([':filename' => $videoFilename]);
+        $stmt = $pdo->prepare("SELECT id FROM videos WHERE filename = ?");
+        $stmt->execute([$videoFilename]);
         $video = $stmt->fetch();
         $videoId = $video['id'] ?? null;
         
@@ -41,48 +41,48 @@ try {
     switch ($action) {
         case 'toggle_favorite':
             // Проверяем, есть ли в избранном
-            $stmt = $pdo->prepare("SELECT 1 FROM favorites WHERE user_id = :user_id AND video_id = :video_id");
-            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $stmt = $pdo->prepare("SELECT 1 FROM favorites WHERE user_id = ? AND video_id = ?");
+            $stmt->execute([$userId, $videoId]);
             
             if ($stmt->fetch()) {
                 // Удаляем из избранного
-                $stmt = $pdo->prepare("DELETE FROM favorites WHERE user_id = :user_id AND video_id = :video_id");
-                $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+                $stmt = $pdo->prepare("DELETE FROM favorites WHERE user_id = ? AND video_id = ?");
+                $stmt->execute([$userId, $videoId]);
                 $message = 'Удалено из избранного';
             } else {
                 // Добавляем в избранное
-                $stmt = $pdo->prepare("INSERT INTO favorites (user_id, video_id) VALUES (:user_id, :video_id)");
-                $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+                $stmt = $pdo->prepare("INSERT INTO favorites (user_id, video_id) VALUES (?, ?)");
+                $stmt->execute([$userId, $videoId]);
                 $message = 'Добавлено в избранное';
             }
             break;
             
         case 'add_like':
             // Удаляем старую реакцию если есть
-            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = :user_id AND video_id = :video_id");
-            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = ? AND video_id = ?");
+            $stmt->execute([$userId, $videoId]);
             
             // Добавляем лайк
-            $stmt = $pdo->prepare("INSERT INTO reactions (user_id, video_id, reaction_type) VALUES (:user_id, :video_id, 'like')");
-            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $stmt = $pdo->prepare("INSERT INTO reactions (user_id, video_id, reaction_type) VALUES (?, ?, 'like')");
+            $stmt->execute([$userId, $videoId]);
             $message = 'Лайк добавлен';
             break;
             
         case 'add_dislike':
             // Удаляем старую реакцию если есть
-            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = :user_id AND video_id = :video_id");
-            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = ? AND video_id = ?");
+            $stmt->execute([$userId, $videoId]);
             
             // Добавляем дизлайк
-            $stmt = $pdo->prepare("INSERT INTO reactions (user_id, video_id, reaction_type) VALUES (:user_id, :video_id, 'dislike')");
-            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $stmt = $pdo->prepare("INSERT INTO reactions (user_id, video_id, reaction_type) VALUES (?, ?, 'dislike')");
+            $stmt->execute([$userId, $videoId]);
             $message = 'Дизлайк добавлен';
             break;
             
         case 'remove_like':
         case 'remove_dislike':
-            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = :user_id AND video_id = :video_id");
-            $stmt->execute([':user_id' => $userId, ':video_id' => $videoId]);
+            $stmt = $pdo->prepare("DELETE FROM reactions WHERE user_id = ? AND video_id = ?");
+            $stmt->execute([$userId, $videoId]);
             $message = 'Реакция удалена';
             break;
             
@@ -91,24 +91,24 @@ try {
     }
     
     // Обновляем время модификации пользователя
-    $stmt = $pdo->prepare("UPDATE users SET last_modified = NOW() WHERE user_id = :user_id");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt = $pdo->prepare("UPDATE users SET last_modified = NOW() WHERE user_id = ?");
+    $stmt->execute([$userId]);
     
     // Получаем обновленные данные для ответа
     $stmt = $pdo->prepare("
         SELECT v.filename FROM favorites f
         JOIN videos v ON v.id = f.video_id
-        WHERE f.user_id = :user_id AND v.is_active = true
+        WHERE f.user_id = ? AND v.is_active = true
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     $favorites = $stmt->fetchAll(PDO::FETCH_COLUMN);
     
     $stmt = $pdo->prepare("
         SELECT v.filename, r.reaction_type FROM reactions r
         JOIN videos v ON v.id = r.video_id
-        WHERE r.user_id = :user_id AND v.is_active = true
+        WHERE r.user_id = ? AND v.is_active = true
     ");
-    $stmt->execute([':user_id' => $userId]);
+    $stmt->execute([$userId]);
     
     $likes = [];
     $dislikes = [];
