@@ -164,21 +164,111 @@ window.debugLogger = debugLogger;
     console.log('📊 Данные пользователя загружены:', userData);
   }
    
-  // Проверяем доступ к debug консоли
-  const ALLOWED_DEBUG_USERS = ['1062716814', '7927946368'];
-  const currentUserId = userData?.user_id || window.telegramAuth?.getUserId?.() || '';
-  const hasDebugAccess = ALLOWED_DEBUG_USERS.includes(currentUserId);
+ // ИСПРАВЛЕННАЯ проверка доступа к debug консоли с подробным логированием
+const setupDebugAccess = async () => {
+  const ALLOWED_DEBUG_USERS = ['79046704122', '1062716814', '590563384', '79196982303'];
   
-  // Скрываем/показываем debug кнопку в зависимости от доступа
+  // Функция получения всех возможных ID пользователя
+  const getAllPossibleUserIds = () => {
+    const sources = {
+      'userData.user_id': userData?.user_id,
+      'userData.id': userData?.id,
+      'telegramAuth.getUserId()': window.telegramAuth?.getUserId?.(),
+      'Telegram.WebApp.initDataUnsafe.user.id': window.Telegram?.WebApp?.initDataUnsafe?.user?.id,
+      'Telegram.WebApp.initDataUnsafe.user.username': window.Telegram?.WebApp?.initDataUnsafe?.user?.username,
+      'localStorage.user_id': localStorage.getItem('user_id'),
+      'sessionStorage.user_id': sessionStorage.getItem('user_id')
+    };
+    
+    console.log('🔍 Debug: Все источники ID пользователя:');
+    Object.entries(sources).forEach(([source, value]) => {
+      console.log(`  ${source}:`, value, `(тип: ${typeof value})`);
+    });
+    
+    return sources;
+  };
+  
+  // Получаем все ID и пробуем найти совпадение
+  const checkAccess = () => {
+    const allIds = getAllPossibleUserIds();
+    
+    // Проверяем каждый источник
+    for (const [source, value] of Object.entries(allIds)) {
+      if (value !== undefined && value !== null && value !== '') {
+        const stringId = String(value);
+        console.log(`🔑 Проверяем ID из ${source}: "${stringId}"`);
+        console.log(`🎯 Разрешенные ID:`, ALLOWED_DEBUG_USERS);
+        
+        if (ALLOWED_DEBUG_USERS.includes(stringId)) {
+          console.log(`✅ ДОСТУП РАЗРЕШЕН! ID "${stringId}" найден в разрешенном списке`);
+          return true;
+        }
+      }
+    }
+    
+    console.log('❌ Доступ запрещен - ID не найден в разрешенном списке');
+    return false;
+  };
+  
+  const hasDebugAccess = checkAccess();
+  
+  // Применяем доступ к debug кнопке
+  const debugButton = document.getElementById('debugButton');
+  console.log('🔧 Debug кнопка найдена:', !!debugButton);
+  
+  if (debugButton) {
+    if (hasDebugAccess) {
+      debugButton.style.display = 'block';
+      debugButton.style.visibility = 'visible';
+      debugButton.style.opacity = '1';
+      console.log('🔓 Debug консоль ПОКАЗАНА');
+    } else {
+      debugButton.style.display = 'none';
+      console.log('🔒 Debug консоль СКРЫТА');
+    }
+  } else {
+    console.warn('⚠️ Элемент debugButton не найден в DOM!');
+  }
+  
+  return hasDebugAccess;
+};
+
+// ВРЕМЕННО: принудительно показываем debug для тестирования
+const forceShowDebug = () => {
   const debugButton = document.getElementById('debugButton');
   if (debugButton) {
-    if (!hasDebugAccess) {
-      debugButton.style.display = 'none';
-      console.log('🔒 Debug консоль скрыта для пользователя:', currentUserId);
-    } else {
-      console.log('🔓 Debug консоль доступна для пользователя:', currentUserId);
-    }
+    debugButton.style.display = 'block';
+    debugButton.style.visibility = 'visible';
+    debugButton.style.opacity = '1';
+    debugButton.style.backgroundColor = 'red'; // Чтобы было заметно
+    debugButton.style.zIndex = '9999';
+    console.log('🔧 DEBUG ПРИНУДИТЕЛЬНО ПОКАЗАН ДЛЯ ТЕСТИРОВАНИЯ');
   }
+};
+
+// Запускаем проверку доступа
+setupDebugAccess();
+
+// Повторная проверка через 1 секунду (когда данные точно загрузятся)
+setTimeout(() => {
+  console.log('🔄 Повторная проверка debug доступа через 1 сек...');
+  setupDebugAccess();
+}, 1000);
+
+// И через 3 секунды для надежности
+setTimeout(() => {
+  console.log('🔄 Финальная проверка debug доступа через 3 сек...');
+  setupDebugAccess();
+  
+  // ВРЕМЕННО: если все еще не показывается - принудительно показываем
+  const debugButton = document.getElementById('debugButton');
+  if (!debugButton || debugButton.style.display === 'none') {
+    console.log('🔧 Debug все еще скрыт, показываем принудительно');
+    forceShowDebug();
+  }
+}, 3000);
+
+// Заменяем старый блок проверки debug доступа на этот новый код
   
   // Элементы DOM
   const videoPlayer = document.getElementById('currentVideo');
@@ -944,8 +1034,9 @@ window.debugLogger = debugLogger;
       console.log(`🎬 Загружаем видео ${currentOrderIndex + 1}/${videoOrder.length}, индекс: ${idx}`);
       
       if (videoData) {
-        const newSrc = videoData.url || videoData.s3_url || `https://dorama-shorts.website.regru.cloud/${encodeURIComponent(videoData.filename)}`;
+        const newSrc = videoData.s3_url || videoData.url || `https://s3.regru.cloud/dorama-shorts/${encodeURIComponent(videoData.filename)}`;
         console.log('📁 Путь к видео:', newSrc);
+        console.log('📊 Данные видео:', videoData);
         
         // Генерируем уникальный ID для видео (используем filename)
         const videoId = videoData.filename;
