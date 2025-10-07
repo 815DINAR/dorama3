@@ -861,3 +861,53 @@ body {
     min-height: 48px;
   }
 }
+
+/* TikTok Navigation стили */
+.tiktok-container {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+    z-index: 1 !important;
+}
+
+.tiktok-video-item {
+    position: absolute;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+    will-change: transform;
+    transform: translateZ(0);
+}
+
+.tiktok-video-item video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* UI элементы поверх TikTok видео */
+.video-info,
+.action-buttons {
+    z-index: 10 !important;
+    position: absolute !important;
+}
+
+.bottom-panel {
+    z-index: 20 !important;
+}
+
+/* Убираем transition во время перетаскивания */
+.tiktok-container.dragging {
+    transition: none !important;
+}
+
+/* Скрываем старое видео */
+#currentVideo {
+    display: none !important;
+}
