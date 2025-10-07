@@ -308,365 +308,252 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ===============================
   // ОБНОВЛЕННЫЙ GESTURE CONTROLLER С PREVIEW SWIPE
   // ===============================
-  
-  class GestureController {
-    constructor(videoController, uiController, previewController) {
-      this.videoController = videoController;
-      this.uiController = uiController;
-      this.previewController = previewController;
-      
-      // Состояния жестов
-      this.STATES = {
-        IDLE: 'idle',
-        TOUCH_START: 'touch_start',
-        ANALYZING: 'analyzing',
-        TAP_DETECTED: 'tap_detected',
-        SWIPE_DETECTED: 'swipe_detected',
-        PREVIEW_ACTIVE: 'preview_active',
-        PROCESSING: 'processing'
-      };
-      
-      this.currentState = this.STATES.IDLE;
-      
-      // Пороги для определения жестов
-      this.TAP_MAX_DURATION = 300;
-      this.TAP_MAX_DISTANCE = 10;
-      this.SWIPE_MIN_DISTANCE = 30; // Уменьшили для более чувствительного preview
-      this.PREVIEW_THRESHOLD = 0.3; // 30% экрана для переключения
-      
-      // Данные текущего жеста
-      this.gestureData = {
-        startTime: 0,
-        startX: 0,
-        startY: 0,
-        currentX: 0,
-        currentY: 0,
-        deltaX: 0,
-        deltaY: 0,
-        duration: 0,
-        distance: 0,
-        velocity: 0,
-        progress: 0 // Прогресс свайпа (0-1)
-      };
-      
-      this.setupEventListeners();
-    }
-    
-    setupEventListeners() {
-      const videoContainer = document.querySelector('.video-swipe-container');
-      
-      if (!videoContainer) {
-        console.error('❌ Не найден video-swipe-container, используем старый контейнер');
-        // Fallback на старый контейнер
-        const fallbackContainer = document.querySelector('.video-container');
-        if (fallbackContainer) {
-          this.setupEventListenersForContainer(fallbackContainer);
+
+    class GestureController {
+        constructor(videoController, uiController, previewController) {
+            this.videoController = videoController;
+            this.uiController = uiController;
+            this.previewController = previewController;
+
+            // Инициализируем TikTok навигацию
+            this.initTikTokNavigation();
+
+            console.log('✅ TikTok GestureController инициализирован');
         }
-        return;
-      }
-      
-      this.setupEventListenersForContainer(videoContainer);
-      console.log('✅ GestureController с Preview Swipe инициализирован');
-    }
-    
-    setupEventListenersForContainer(container) {
-      // Touch события
-      container.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: false });
-      container.addEventListener('touchmove', this.handleTouchMove.bind(this), { passive: false });
-      container.addEventListener('touchend', this.handleTouchEnd.bind(this), { passive: false });
-      container.addEventListener('touchcancel', this.handleTouchCancel.bind(this), { passive: false });
-      
-      // Mouse события для десктопа
-      container.addEventListener('mousedown', this.handleMouseDown.bind(this));
-      container.addEventListener('mousemove', this.handleMouseMove.bind(this));
-      container.addEventListener('mouseup', this.handleMouseUp.bind(this));
-      
-      // Wheel для прокрутки на десктопе
-      container.addEventListener('wheel', this.handleWheel.bind(this), { passive: false });
-    }
-    
-    handleTouchStart(e) {
-      if (this.shouldIgnoreElement(e.target)) return;
-      if (!this.videoController.isMainTabActive()) return;
-      
-      e.preventDefault();
-      
-      const touch = e.changedTouches[0];
-      this.startGesture(touch.clientX, touch.clientY);
-      
-      console.log('👆 Touch start detected');
-    }
-    
-    handleTouchMove(e) {
-      if (this.currentState === this.STATES.IDLE) return;
-      
-      e.preventDefault();
-      
-      const touch = e.changedTouches[0];
-      this.updateGesture(touch.clientX, touch.clientY);
-      
-      // Анализируем жест и обновляем preview
-      this.analyzeGestureWithPreview();
-    }
-    
-    handleTouchEnd(e) {
-      if (this.currentState === this.STATES.IDLE) return;
-      
-      e.preventDefault();
-      
-      const touch = e.changedTouches[0];
-      this.endGesture(touch.clientX, touch.clientY);
-    }
-    
-    handleTouchCancel(e) {
-      console.log('🚫 Touch cancelled');
-      this.resetGesture();
-    }
-    
-    handleMouseDown(e) {
-      if (this.shouldIgnoreElement(e.target)) return;
-      if (!this.videoController.isMainTabActive()) return;
-      
-      e.preventDefault();
-      this.startGesture(e.clientX, e.clientY);
-    }
-    
-    handleMouseMove(e) {
-      if (this.currentState === this.STATES.IDLE) return;
-      this.updateGesture(e.clientX, e.clientY);
-      this.analyzeGestureWithPreview();
-    }
-    
-    handleMouseUp(e) {
-      if (this.currentState === this.STATES.IDLE) return;
-      this.endGesture(e.clientX, e.clientY);
-    }
-    
-    handleWheel(e) {
-      if (!this.videoController.isMainTabActive()) return;
-      
-      e.preventDefault();
-      
-      if (this.currentState === this.STATES.PROCESSING) return;
-      
-      this.currentState = this.STATES.PROCESSING;
-      
-      if (e.deltaY > 0) {
-        this.executeSwipeAction('down');
-      } else if (e.deltaY < 0) {
-        this.executeSwipeAction('up');
-      }
-      
-      setTimeout(() => {
-        this.resetGesture();
-      }, 500);
-    }
-    
-    // Основная логика жестов
-    startGesture(x, y) {
-      this.currentState = this.STATES.TOUCH_START;
-      this.gestureData.startTime = Date.now();
-      this.gestureData.startX = x;
-      this.gestureData.startY = y;
-      this.gestureData.currentX = x;
-      this.gestureData.currentY = y;
-      
-      console.log('🎯 Жест начат:', { x, y });
-    }
-    
-    updateGesture(x, y) {
-      this.gestureData.currentX = x;
-      this.gestureData.currentY = y;
-      this.gestureData.deltaX = x - this.gestureData.startX;
-      this.gestureData.deltaY = y - this.gestureData.startY;
-      this.gestureData.distance = Math.sqrt(
-        this.gestureData.deltaX ** 2 + this.gestureData.deltaY ** 2
-      );
-      this.gestureData.duration = Date.now() - this.gestureData.startTime;
-      
-      if (this.gestureData.duration > 0) {
-        this.gestureData.velocity = this.gestureData.distance / this.gestureData.duration;
-      }
-      
-      // Вычисляем прогресс свайпа вверх (для preview)
-      const screenHeight = window.innerHeight;
-      this.gestureData.progress = Math.max(0, Math.min(1, -this.gestureData.deltaY / screenHeight));
-    }
-    
-    // НОВАЯ функция анализа жестов с поддержкой preview
-    analyzeGestureWithPreview() {
-      if (this.currentState !== this.STATES.TOUCH_START && 
-          this.currentState !== this.STATES.ANALYZING &&
-          this.currentState !== this.STATES.PREVIEW_ACTIVE) return;
-      
-      const { distance, deltaY, progress } = this.gestureData;
-      
-      // Если движение слишком большое - это точно не тап
-      if (distance > this.TAP_MAX_DISTANCE) {
-        // Проверяем, это свайп вверх (preview) или обычный свайп
-        if (deltaY < -this.SWIPE_MIN_DISTANCE) {
-          this.currentState = this.STATES.PREVIEW_ACTIVE;
-          
-          // Активируем preview если он еще не активен
-          if (!this.previewController.isPreviewActive && progress > 0.05) {
-            this.previewController.startPreview(progress);
-          } else if (this.previewController.isPreviewActive) {
-            this.previewController.updatePreview(progress);
-          }
-          
-          console.log('📱 Preview swipe активен, прогресс:', Math.round(progress * 100) + '%');
-        } else {
-          this.currentState = this.STATES.SWIPE_DETECTED;
-          console.log('📱 Обычный swipe detected');
+
+        initTikTokNavigation() {
+            // Ждем загрузки DOM
+            setTimeout(() => {
+                this.createTikTokContainer();
+                this.setupTikTokNav();
+            }, 1000);
         }
-      }
-    }
-    
-    endGesture(x, y) {
-      this.updateGesture(x, y);
-      
-      console.log('🏁 Жест завершен:', {
-        duration: this.gestureData.duration,
-        distance: this.gestureData.distance,
-        deltaY: this.gestureData.deltaY,
-        progress: this.gestureData.progress,
-        state: this.currentState
-      });
-      
-      // Обрабатываем завершение preview swipe
-      if (this.currentState === this.STATES.PREVIEW_ACTIVE) {
-        this.handlePreviewEnd();
-        return;
-      }
-      
-      // Определяем финальный тип жеста
-      const gestureType = this.determineGestureType();
-      
-      // Выполняем соответствующее действие
-      this.executeGesture(gestureType);
-    }
-    
-    // НОВАЯ функция обработки завершения preview
-    async handlePreviewEnd() {
-      const { progress } = this.gestureData;
-      
-      if (progress >= this.PREVIEW_THRESHOLD) {
-        // Переходим к следующему видео
-        const success = await this.previewController.finishPreviewWithTransition();
-        if (success) {
-          // Обновляем глобальное состояние
-          await this.videoController.executeNextVideoWithPreview();
+
+        createTikTokContainer() {
+            const mainContent = document.getElementById('mainContent');
+            const currentVideo = document.getElementById('currentVideo');
+
+            if (!mainContent || !currentVideo) return;
+
+            // Скрываем старое видео
+            currentVideo.style.display = 'none';
+
+            // Создаем контейнер для TikTok видео
+            let tiktokContainer = document.getElementById('tiktokContainer');
+            if (!tiktokContainer) {
+                tiktokContainer = document.createElement('div');
+                tiktokContainer.id = 'tiktokContainer';
+                tiktokContainer.className = 'tiktok-container';
+                tiktokContainer.style.cssText = `
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 1;
+                overflow: hidden;
+            `;
+                mainContent.appendChild(tiktokContainer);
+            }
+
+            console.log('✅ TikTok контейнер создан');
         }
-      } else {
-        // Отменяем preview
-        this.previewController.cancelPreview();
-      }
-      
-      this.resetGesture();
+
+        setupTikTokNav() {
+            if (!window.TikTokNavigation) {
+                console.error('❌ TikTokNavigation не найден!');
+                return;
+            }
+
+            this.tiktokNav = new TikTokNavigation({
+                containerSelector: '#tiktokContainer',
+                videoSelector: '.tiktok-video-item',
+                swipeThreshold: 50,
+                animationDuration: 400,
+                debug: true,
+
+                onVideoChange: (newIndex, oldIndex) => {
+                    console.log(`🎬 TikTok: видео ${oldIndex} → ${newIndex}`);
+                    this.handleVideoChange(newIndex);
+                },
+
+                onTap: (index) => {
+                    console.log('👆 TikTok tap - pause/play');
+                    this.handleTap();
+                },
+
+                onSwipeStart: (index) => {
+                    console.log('📱 TikTok swipe start');
+                },
+
+                onSwipeEnd: (index) => {
+                    console.log('📱 TikTok swipe end');
+                }
+            });
+
+            // Загружаем первые видео
+            this.loadTikTokVideos();
+        }
+
+        loadTikTokVideos() {
+            if (!window.videos || !window.videoOrder || !this.tiktokNav) return;
+
+            console.log('📹 Загружаем TikTok видео...');
+
+            // Загружаем первые 8 видео
+            const videosToLoad = Math.min(8, window.videos.length);
+
+            for (let i = 0; i < videosToLoad; i++) {
+                const videoData = window.videos[window.videoOrder[i]];
+                if (videoData) {
+                    const videoElement = this.createTikTokVideoElement(videoData, i);
+                    this.tiktokNav.addVideo(videoElement);
+                }
+            }
+
+            // Обновляем информацию о первом видео
+            this.handleVideoChange(0);
+
+            console.log(`✅ Загружено ${videosToLoad} TikTok видео`);
+        }
+
+        createTikTokVideoElement(videoData, index) {
+            const videoItem = document.createElement('div');
+            videoItem.className = 'tiktok-video-item';
+            videoItem.dataset.index = index;
+            videoItem.dataset.filename = videoData.filename;
+
+            const video = document.createElement('video');
+            video.src = videoData.s3_url || videoData.url ||
+                `https://s3.regru.cloud/dorama-shorts/${encodeURIComponent(videoData.filename)}`;
+            video.muted = false;
+            video.loop = true;
+            video.playsInline = true;
+            video.preload = 'metadata';
+            video.style.cssText = `
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            background: #000;
+        `;
+
+            // Автозапуск первого видео
+            if (index === 0 && window.hasFirstClickOccurred) {
+                setTimeout(() => {
+                    video.play().catch(console.warn);
+                }, 500);
+            }
+
+            videoItem.appendChild(video);
+
+            console.log(`📹 Создано TikTok видео ${index}: ${videoData.filename}`);
+
+            return videoItem;
+        }
+
+        handleVideoChange(newIndex) {
+            // Обновляем глобальный индекс
+            window.currentOrderIndex = newIndex;
+
+            if (!window.videos || !window.videoOrder) return;
+
+            const videoData = window.videos[window.videoOrder[newIndex]];
+            if (!videoData) return;
+
+            console.log('🔄 Обновляем информацию о видео:', videoData.filename);
+
+            // Обновляем UI элементы
+            const videoTitle = document.getElementById('videoTitle');
+            const videoGenre = document.getElementById('videoGenre');
+
+            if (videoTitle) videoTitle.textContent = videoData.title || 'Без названия';
+            if (videoGenre) videoGenre.textContent = videoData.genre || 'Неизвестно';
+
+            // Обновляем кнопки
+            if (typeof updateButtonStates === 'function') {
+                updateButtonStates(videoData.filename);
+            }
+
+            // Запускаем отслеживание просмотра
+            if (typeof startWatchTracking === 'function' && window.hasFirstClickOccurred) {
+                startWatchTracking(videoData.filename);
+            }
+
+            // Обновляем последнее видео
+            if (typeof updateLastVideoBatch === 'function') {
+                updateLastVideoBatch(videoData.filename);
+            }
+
+            // Управляем воспроизведением видео
+            this.manageVideoPlayback(newIndex);
+
+            // Подгружаем новые видео если нужно
+            this.loadMoreVideosIfNeeded(newIndex);
+        }
+
+        manageVideoPlayback(currentIndex) {
+            // Останавливаем все видео
+            const allVideos = document.querySelectorAll('.tiktok-video-item video');
+            allVideos.forEach((video, index) => {
+                if (index === currentIndex && window.hasFirstClickOccurred) {
+                    video.play().catch(console.warn);
+                } else {
+                    video.pause();
+                }
+            });
+        }
+
+        loadMoreVideosIfNeeded(currentIndex) {
+            const totalVideos = this.tiktokNav.getVideosCount();
+
+            // Если приближаемся к концу, подгружаем еще
+            if (currentIndex >= totalVideos - 3) {
+                const nextVideoIndex = totalVideos;
+
+                if (nextVideoIndex < window.videos.length) {
+                    const videoData = window.videos[window.videoOrder[nextVideoIndex]];
+                    if (videoData) {
+                        const videoElement = this.createTikTokVideoElement(videoData, nextVideoIndex);
+                        this.tiktokNav.addVideo(videoElement);
+                        console.log('📹 Подгружено новое видео:', videoData.filename);
+                    }
+                }
+            }
+        }
+
+        handleTap() {
+            // Находим текущее видео
+            const currentVideo = document.querySelector('.tiktok-video-item video');
+            if (currentVideo) {
+                if (currentVideo.paused) {
+                    currentVideo.play().catch(console.warn);
+                    console.log('▶️ Видео запущено');
+                } else {
+                    currentVideo.pause();
+                    console.log('⏸️ Видео поставлено на паузу');
+                }
+
+                // Показываем индикатор
+                if (this.uiController) {
+                    this.uiController.showPauseIndicator();
+                }
+            }
+        }
+
+        // Совместимость со старым API
+        shouldIgnoreElement(target) {
+            return (
+                target.tagName.toLowerCase() === 'button' ||
+                target.tagName.toLowerCase() === 'a' ||
+                target.closest('button') ||
+                target.closest('.action-buttons') ||
+                target.closest('.description-modal') ||
+                target.closest('.bottom-panel') ||
+                target.closest('.favorites-container') ||
+                target.closest('.debug-console')
+            );
+        }
     }
-    
-    determineGestureType() {
-      const { duration, distance, deltaY, deltaX } = this.gestureData;
-      
-      // Проверяем тап: короткое время + малое расстояние
-      if (duration < this.TAP_MAX_DURATION && distance < this.TAP_MAX_DISTANCE) {
-        return 'tap';
-      }
-      
-      // Проверяем вертикальный свайп для переключения видео
-      if (Math.abs(deltaY) > this.SWIPE_MIN_DISTANCE && Math.abs(deltaY) > Math.abs(deltaX)) {
-        return deltaY > 0 ? 'swipe_down' : 'swipe_up';
-      }
-      
-      // Горизонтальный свайп
-      if (Math.abs(deltaX) > this.SWIPE_MIN_DISTANCE && Math.abs(deltaX) > Math.abs(deltaY)) {
-        return deltaX > 0 ? 'swipe_right' : 'swipe_left';
-      }
-      
-      return 'unknown';
-    }
-    
-    executeGesture(gestureType) {
-      if (this.currentState === this.STATES.PROCESSING) {
-        console.log('⏳ Уже обрабатывается другой жест');
-        return;
-      }
-      
-      this.currentState = this.STATES.PROCESSING;
-      
-      console.log('⚡ Выполняем жест:', gestureType);
-      
-      switch (gestureType) {
-        case 'tap':
-          this.executeTapAction();
-          break;
-        case 'swipe_up':
-          this.executeSwipeAction('up');
-          break;
-        case 'swipe_down':
-          this.executeSwipeAction('down');
-          break;
-        default:
-          console.log('🤷 Неизвестный жест, игнорируем');
-          this.resetGesture();
-          return;
-      }
-      
-      setTimeout(() => {
-        this.resetGesture();
-      }, 300);
-    }
-    
-    executeTapAction() {
-      console.log('👆 Выполняем TAP - переключение паузы');
-      this.videoController.togglePause();
-      this.uiController.showPauseIndicator();
-    }
-    
-    executeSwipeAction(direction) {
-      console.log(`📱 Выполняем SWIPE ${direction} - переключение видео`);
-      if (direction === 'up') {
-        this.videoController.nextVideo();
-      } else if (direction === 'down') {
-        this.videoController.nextVideo();
-      }
-    }
-    
-    resetGesture() {
-      // Отменяем preview если он активен
-      if (this.currentState === this.STATES.PREVIEW_ACTIVE) {
-        this.previewController.cancelPreview();
-      }
-      
-      this.currentState = this.STATES.IDLE;
-      this.gestureData = {
-        startTime: 0,
-        startX: 0,
-        startY: 0,
-        currentX: 0,
-        currentY: 0,
-        deltaX: 0,
-        deltaY: 0,
-        duration: 0,
-        distance: 0,
-        velocity: 0,
-        progress: 0
-      };
-    }
-    
-    shouldIgnoreElement(target) {
-      return (
-        target.tagName.toLowerCase() === 'button' ||
-        target.tagName.toLowerCase() === 'a' ||
-        target.closest('button') ||
-        target.closest('.action-buttons') ||
-        target.closest('.description-modal') ||
-        target.closest('.bottom-panel') ||
-        target.closest('.favorites-container') ||
-        target.closest('.debug-console')
-      );
-    }
-  }
   
   // ===============================
   // UI CONTROLLER (БЕЗ ИЗМЕНЕНИЙ)
