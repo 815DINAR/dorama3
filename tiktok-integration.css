@@ -1,0 +1,34 @@
+/* Дополнения к твоему styles100.css */
+
+/* Контейнер для TikTok навигации */
+.tiktok-video-item {
+    position: absolute;
+    width: 100%;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #000;
+}
+
+.tiktok-video-item video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Скрываем старое видео когда используем TikTok навигацию */
+.tiktok-mode #currentVideo {
+    display: none !important;
+}
+
+/* Убираем transition во время перетаскивания */
+.video-container.dragging {
+    transition: none !important;
+}
+
+/* Улучшения для плавности */
+.tiktok-video-item {
+    will-change: transform;
+    transform: translateZ(0); /* Принудительное GPU ускорение */
+}
